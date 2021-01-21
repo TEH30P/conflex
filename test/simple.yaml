@@ -1,0 +1,12 @@
+s_main:
+  v_bool: true
+  v_int: 42
+  v_bigint: 2KB
+  v_float: 3.141592
+  l_int_list:
+    - 1
+    - 2
+    - 3
+  v_complex:
+    v: ok
+    v_kind: nice

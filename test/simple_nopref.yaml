@@ -1,0 +1,12 @@
+main:
+  bool: True
+  int: 42
+  bigint: 2KB
+  float: 3.141592
+  int_list:
+    - 1
+    - 2
+    - 3
+  complex:
+    v: ok
+    kind: nice
