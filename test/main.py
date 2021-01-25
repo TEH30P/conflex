@@ -174,46 +174,46 @@ def test_opt_manager_errors():
 
 def test_opt_manager():
     v = m_c.def_opt('main')
-    assert v.v_name == 'main'
-    assert v.v_kind == 's'
+    assert v.name == 'main'
+    assert v.kind == 's'
     assert type(v) == m_c.DefSection
 
     v = m_c.def_opt('v_main')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'v'
+    assert v.name == 'main'
+    assert v.kind == 'v'
     assert type(v) == m_c.DefValue
 
     v = m_c.def_opt('l_main')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'l'
+    assert v.name == 'main'
+    assert v.kind == 'l'
     assert type(v) == m_c.DefList
 
     v = 'main' >> m_c.DefSection()
-    assert v.v_name == 'main'
-    assert v.v_kind == 's'
+    assert v.name == 'main'
+    assert v.kind == 's'
     assert v != 'niam'
 
     v = 'main' >> m_c.DefValue(iv_default='ok')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'v'
-    assert v.v_default == 'ok'
+    assert v.name == 'main'
+    assert v.kind == 'v'
+    assert v.default == 'ok'
     assert v.value_parse('ok') == 'ok'
 
     v = 'main' >> m_c.DefValueInt(iv_default='1')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'v'
-    assert v.v_default == 1
+    assert v.name == 'main'
+    assert v.kind == 'v'
+    assert v.default == 1
     assert v.value_parse('42') == 42
     assert v.value_parse('1KB') == 1024
 
     v = 'main' >> m_c.DefValueFloat(iv_default='1')
-    assert v.v_name == 'main'
-    assert v.v_default == 1.0
+    assert v.name == 'main'
+    assert v.default == 1.0
     assert v.value_parse('42') == 42.0
 
     v = 'main' >> m_c.DefValueEnum(il_mapping={'Yes': 1, 'No': -1}, iv_default='Yes')
-    assert v.v_name == 'main'
-    assert v.v_default == 1
+    assert v.name == 'main'
+    assert v.default == 1
     assert v.value_parse('No') == -1
     assert v.value_parse('Yes') == 1
 
@@ -222,60 +222,73 @@ def test_opt_manager():
     assert v.value_parse('Yes') == 1
 
     v = 'main' >> m_c.DefList(iv_default=None)
-    assert v.v_name == 'main'
-    assert v.v_kind == 'l'
-    assert v.v_default == []
+    assert v.name == 'main'
+    assert v.kind == 'l'
+    assert v.default == []
     assert v.value_parse('ok') == 'ok'
 
     v = m_c.DefList(iv_default=[])
-    assert v.v_default == []
+    assert v.default == []
 
     v = 'main' >> m_c.DefListInt(iv_default='42')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'l'
-    assert v.v_default == [4, 2]
+    assert v.name == 'main'
+    assert v.kind == 'l'
+    assert v.default == [4, 2]
     assert v.value_parse('42') == 42
     assert v.value_parse('1KB') == 1024
 
     v = m_c.DefListInt(iv_default=range(0, 2))
-    assert v.v_default == [0, 1]
+    assert v.default == [0, 1]
 
     v = m_c.DefListInt(iv_default=[0, 1])
-    assert v.v_default == [0, 1]
+    assert v.default == [0, 1]
 
     v = 'main' >> m_c.DefListFloat(iv_default='42')
-    assert v.v_name == 'main'
-    assert v.v_kind == 'l'
-    assert v.v_default == [4.0, 2.0]
+    assert v.name == 'main'
+    assert v.kind == 'l'
+    assert v.default == [4.0, 2.0]
     assert v.value_parse('42') == 42.0
 
     v = m_c.DefListFloat(iv_default=range(0, 2))
-    assert v.v_default == [0.0, 1.0]
+    assert v.default == [0.0, 1.0]
 
     v = m_c.DefListFloat(iv_default=[0, 1])
-    assert v.v_default == [0.0, 1.0]
+    assert v.default == [0.0, 1.0]
 
     v = m_c.DefListFloat(iv_default=[27.01, 16.09])
-    assert v.v_default == [27.01, 16.09]
+    assert v.default == [27.01, 16.09]
 
 
 def test_conf_load():
-    v = m_c.Config({'s' >> m_c.DefSection() << {'v_a', 'v_b'}})
+    v = m_c.Config({'s' >> m_c.DefSection() << {'v_a', 'v_b', 'l_c', 'l' >> m_c.DefList(), 'v' >> m_c.DefValue()}})
     v.load_d({'s': {'a': 1, 'b': 2}})
-    assert v._l_conf['s']['a'] == 1
-    assert v._l_conf['s']['b'] == 2
+    assert v._parser_l['/s'].kind == 's'
+    assert v._parser_l['/s'].name == 's'
+    assert v._parser_l['/s/a'].kind == 'v'
+    assert v._parser_l['/s/a'].name == 'a'
+    assert v._parser_l['/s/b'].kind == 'v'
+    assert v._parser_l['/s/b'].name == 'b'
+    assert v._parser_l['/s/c'].kind == 'l'
+    assert v._parser_l['/s/c'].name == 'c'
+    assert v._parser_l['/s/l'].kind == 'l'
+    assert v._parser_l['/s/l'].name == 'l'
+    assert v._parser_l['/s/v'].kind == 'v'
+    assert v._parser_l['/s/v'].name == 'v'
+    assert len([_ for _ in v._parser_l.keys() if _ not in {'/s', '/s/a', '/s/b', '/s/c', '/s/l', '/s/v'}]) == 0
+    assert v._conf_l['s']['a'] == 1
+    assert v._conf_l['s']['b'] == 2
     v.load_d([('s', {'a': 1, 'b': 2})])
-    assert v._l_conf['s']['a'] == 1
-    assert v._l_conf['s']['b'] == 2
+    assert v._conf_l['s']['a'] == 1
+    assert v._conf_l['s']['b'] == 2
 
 
 def test_abc():
     v = m_c.DefOptAbc('_')
-    assert v.v_kind == '_'
-    assert v.v_name == ''
+    assert v.kind == '_'
+    assert v.name == ''
 
     v = 'main' >> m_c.DefOptAbc('_')
-    assert v.v_name == 'main'
+    assert v.name == 'main'
 
     with pytest.raises(NotImplementedError):
         v = m_c.DefItemAbc('_').value_parse('dummy')
