@@ -103,6 +103,9 @@ class DefItemAbc(DefOptAbc):
     def value_parse(self, iv):
         raise NotImplementedError('Method must be overridden.')
 
+    def default_get(self, iv_path: str):
+        raise NotImplementedError('Method must be overridden.')
+
 
 class DefValue(DefItemAbc):
     def __init__(self, iv_default=None):
@@ -168,38 +171,6 @@ class DefListFloat(DefList):
         return _opt_float_parse(iv)
 
 
-class OptValue:
-    def __init__(self, iv_raw, iv_manager: DefValue):
-        self._manager = iv_manager
-        self._raw = iv_raw
-
-    @property
-    def v(self):
-        v = self._raw
-        if isinstance(v, Mapping):
-            v = v.get('v')
-        return self._manager.default if v is None else self._manager.value_parse(v)
-
-
-class OptList:
-    def __init__(self, iv_raw, iv_manager: DefList):
-        self._manager = iv_manager
-        self._raw = iv_raw
-
-    @property
-    def l(self):
-        v_raw = self._raw
-
-        if v_raw is None:
-            v_raw = self._manager.default
-        elif isinstance(v_raw, Mapping):
-            v_raw = v_raw.get('l')
-        return \
-            [self._manager.value_parse(v) for v in v_raw] \
-            if isinstance(v_raw, Sequence) and not type(v_raw) is str \
-            else [self._manager.value_parse(v_raw)]
-
-
 def def_opt(iv_name: str) -> DefOptAbc:
     v_kind, v_name = _opt_name_split(iv_name)
 
@@ -212,12 +183,14 @@ def def_opt(iv_name: str) -> DefOptAbc:
 
 
 class Config(Mapping):
-    def __init__(self, il_parser: set):
+    def __init__(self, il_parser: set = None):
         self._conf_l: dict = {}
-        self._parser_l = self._parser_dict_create(il_parser)
+        self._parser_l: Mapping[str, DefItemAbc] = self._parser_dict_create(il_parser) if il_parser is not None else {}
         self._iter = None
+        self._path_prefix = ''
 
-    def _parser_dict_create(self, il_tree: set) -> dict:
+    @staticmethod
+    def _parser_dict_create(il_tree: set) -> dict:
         """Create plain dict parser from input tree of opt definitions `DefOptAbc objects`.
 
         :param il_tree: Set
@@ -265,45 +238,67 @@ class Config(Mapping):
         v_key_part_len = len(l_key_part)
         if v_key_part_len == 2:
             if l_key_part[0] not in ['s', 'v', 'l']:
-                l_ret = (self._parser_l[f'{iv_parent_path}/{iv_raw}'].kind, iv_raw)
+                l_ret = (str(self._parser_l[f'{iv_parent_path}/{iv_raw}'].kind), iv_raw)
             elif self._parser_l[f'{iv_parent_path}/{l_key_part[1]}'].kind != l_key_part[0]:
                 raise KeyError(f'Option `{iv_parent_path}/{l_key_part[1]}` exist but have different kind.')
             else:
                 l_ret = (l_key_part[0], l_key_part[1])
         elif v_key_part_len == 1:
-            l_ret = (self._parser_l[f'{iv_parent_path}/{iv_raw}'].kind, iv_raw)
+            l_ret = (str(self._parser_l[f'{iv_parent_path}/{iv_raw}'].kind), iv_raw)
         return l_ret
 
     def _value_get(self, iv_path: str):
-        v_conf_opt: dict = self._conf_l
-        v_path: str = ''
-        v_pref: str = ''
-        v_key: str = '/'
-        for v_key_raw in iv_path.split('/'):
-            if v_key == '/':
-                if len(v_key_raw) != 0:
-                    raise KeyError(r'Option path have invalid format. '
-                                   r'Format is: `{ "/" , option-or-section }`,'
-                                   r' "/" at beginning is required.')
-                v_key = ''
-                continue
+        if len(iv_path) == 0:
+            raise KeyError(r'Option path is empty.')
+        if iv_path[0] != '/':
+            raise KeyError(r'Option path have invalid format. '
+                           r'Format is: `{ "/" , option-or-section }`,'
+                           r' "/" at beginning is required.')
+        v_path_raw = iv_path[1:]
+        l_conf_opt: list = [self._conf_l]
+        l_conf_opt_tmp: list = []
+        v_path: str = self._path_prefix
+        v_kind: str = ''
+        v_ret_list: bool = False
+        v_key: str = ''
+        v_opt = None
+        for v_key_raw in v_path_raw.split('/'):
             if len(v_key_raw) == 0:
                 raise KeyError(r'Option path have invalid format.'
                                r'Format is: `{ "/" , option-or-section }`,'
-                               r' repeatable "/" is proshibited.')
-            v_pref, v_key = self._subkey_translate(v_key_raw, v_path)
+                               r' repeatable "/" is prohibited.')
+            v_kind, v_key = self._subkey_translate(v_key_raw, v_path)
             v_path += '/' + v_key
-            if v_conf_opt is not None:
-                v_conf_opt = v_conf_opt.get(v_key, v_conf_opt.get(f'{v_pref}_{v_key}'))
+            v_ret_list = v_ret_list or v_kind == 'l'
+            for v_opt in l_conf_opt:
+                l_conf_opt_tmp.extend(Config._subkey_get(v_kind, v_key, v_opt))
+            l_conf_opt.clear()
+            l_conf_opt, l_conf_opt_tmp = l_conf_opt_tmp, l_conf_opt
 
-        if len(v_pref) == 0:
-            raise KeyError(r'Option path is empty.')
-        elif v_pref == 's':
+        if v_kind == 's':
             raise TypeError('Sections can not have a value.')
-        elif v_pref == 'v':
-            return OptValue(v_conf_opt, self._parser_l[v_path]).v
-        elif v_pref == 'l':
-            return OptList(v_conf_opt, self._parser_l[v_path]).l
+
+        if len(l_conf_opt) == 0:
+            l_conf_opt = self._parser_l[v_path].default_get(iv_path) \
+                if v_kind == 'l' else [self._parser_l[v_path].default_get(iv_path)]
+        else:
+            for v_opt in l_conf_opt:
+                if isinstance(v_opt, Mapping):
+                    v_opt = v_opt.get('v')
+                if v_opt is None:
+                    if v_kind == 'l':
+                        l_conf_opt_tmp.extend(self._parser_l[v_path].default_get(v_path))
+                    if v_kind == 'v':
+                        l_conf_opt_tmp.append(self._parser_l[v_path].default_get(v_path))
+                else:
+                    l_conf_opt_tmp.append(self._parser_l[v_path].value_parse(v_opt))
+            l_conf_opt.clear()
+            l_conf_opt, l_conf_opt_tmp = l_conf_opt_tmp, l_conf_opt
+
+        if v_ret_list:
+            return l_conf_opt
+        else:
+            return l_conf_opt[0] if len(l_conf_opt) else None
 
     def load_d(self, il_raw_conf: dict) -> None:
         if isinstance(il_raw_conf, Mapping):

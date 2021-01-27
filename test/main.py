@@ -2,10 +2,29 @@ import pytest
 import conflex as m_c
 
 l_test_dict: dict = {
-    'simple_nulls0': {'s_main': {'v_missing': None, 'l_lost': None, 'v_bool': 'true', 'v_int': '42', 'v_bigint': '2KB', 'v_float': '3.141592', 'l_int_list': ['1', '2', '3'], 'v_complex': {'v': 'ok', 'v_kind': 'nice'}}}
+    'simple_nulls0': {
+        's_main': {
+            'v_lost': None,
+            'l_lost_list': None,
+            'v_bool': 'true',
+            'v_int': 42,
+            'v_bigint': '2KB',
+            'v_float': 3.141592,
+            'l_int_list': [1, 2, 3],
+            'l_complex_list': [
+                {'v': 1,  'v_as': 'I'},
+                {'v': 5,  'v_as': 'V'},
+                {'v': 10, 'v_as': 'X'},
+                {'v': 42, 'v_as': None}],
+            'v_complex': {
+                'v': 'ok',
+                'v_kind': 'nice'}}}
 }
 
-@pytest.fixture(scope='module', params=['fl:simple.yaml', 'fl:simple_nopref.yaml', 'fl:simple_fullpath.yaml', 'kv:simple_nulls0'])
+
+@pytest.fixture(
+    scope='module',
+    params=['fl:simple.yaml', 'fl:simple_nopref.yaml', 'fl:simple_fullpath.yaml', 'kv:simple_nulls0'])
 def fv_conf_dict(request):
     import yaml, io
 
@@ -34,6 +53,8 @@ def fv_conf_object(fv_conf_dict):
                 , '/main/bigint': m_c.DefValueInt()
                 , '/main/float': m_c.DefValueFloat()
                 , '/main/int_list': m_c.DefListInt()
+                , '/main/complex_list': m_c.DefListInt()
+                , '/main/complex_list/as': m_c.DefValue(iv_default='?')
                 , '/main/complex': m_c.DefValue()
                 , '/main/complex/kind': m_c.DefValue()}
 
@@ -46,6 +67,8 @@ def fv_conf_object(fv_conf_dict):
             'bigint' >> m_c.DefValueInt(),
             'float' >> m_c.DefValueFloat(),
             'int_list' >> m_c.DefListInt(),
+            'complex_list' >> m_c.DefListInt() << {
+                'as' >> m_c.DefValue(iv_default='?')},
             'complex' >> m_c.DefValue() << {
                 'kind' >> m_c.DefValue()}}})
     v_ret.load_d(fv_conf_dict)
@@ -53,12 +76,14 @@ def fv_conf_object(fv_conf_dict):
 
 
 def test_config_values(fv_conf_object):
-    assert fv_conf_object['/main/missing'] == 'default'
-    assert fv_conf_object['/main/lost'] == list('default')
+    assert fv_conf_object['/main/lost'] == 'default'
+    assert fv_conf_object['/main/lost_list'] == list('default')
     assert fv_conf_object['/main/bool']  # == True
     assert fv_conf_object['/main/int'] == 42
     assert fv_conf_object['/main/bigint'] == (2 * 1024)
     assert fv_conf_object['/main/int_list'] == [1, 2, 3]
+    assert fv_conf_object['/main/complex_list'] == [1, 5, 10, 42]
+    assert fv_conf_object['/main/complex_list/as'] == ['I', 'V', 'X', '?']
     assert fv_conf_object['/main/float'] == 3.141592
     assert fv_conf_object['/main/complex'] == 'ok'
     assert fv_conf_object['/main/complex/kind'] == 'nice'
@@ -82,12 +107,14 @@ def test_config_errors(fv_conf_object):
 
 
 def test_config_kind_values(fv_conf_object):
-    assert fv_conf_object['/s_main/v_missing'] == 'default'
-    assert fv_conf_object['/s_main/l_lost'] == list('default')
+    assert fv_conf_object['/s_main/v_lost'] == 'default'
+    assert fv_conf_object['/s_main/l_lost_list'] == list('default')
     assert fv_conf_object['/s_main/v_bool']  # == True
     assert fv_conf_object['/s_main/v_int'] == 42
     assert fv_conf_object['/s_main/v_bigint'] == (2 * 1024)
     assert fv_conf_object['/s_main/l_int_list'] == [1, 2, 3]
+    assert fv_conf_object['/s_main/l_complex_list'] == [1, 5, 10, 42]
+    assert fv_conf_object['/s_main/l_complex_list/v_as'] == ['I', 'V', 'X', '?']
     assert fv_conf_object['/s_main/v_float'] == 3.141592
     assert fv_conf_object['/s_main/v_complex'] == 'ok'
     assert fv_conf_object['/s_main/v_complex/v_kind'] == 'nice'
@@ -109,18 +136,18 @@ def test_config_kind_errors(fv_conf_object):
     with pytest.raises(KeyError):
         v = fv_conf_object['']
 
-'''
 
-'''
 def test_config_iter(fv_conf_object):
     l_option = \
-        { '/main/missing': 'default'
-        , '/main/lost': list('default')
+        { '/main/lost': 'default'
+        , '/main/lost_list': list('default')
         , '/main/bool': True
         , '/main/int': 42
         , '/main/bigint': 2 * 1024
         , '/main/float': 3.141592
         , '/main/int_list': [1, 2, 3]
+        , '/main/complex_list': [1, 5, 10, 42]
+        , '/main/complex_list/as': ['I', 'V', 'X', '?']
         , '/main/complex': 'ok'
         , '/main/complex/kind': 'nice'}
     v_idx = -1
@@ -262,6 +289,8 @@ def test_opt_manager():
 def test_conf_load():
     v = m_c.Config({'s' >> m_c.DefSection() << {'v_a', 'v_b', 'l_c', 'l' >> m_c.DefList(), 'v' >> m_c.DefValue()}})
     v.load_d({'s': {'a': 1, 'b': 2}})
+    assert v._conf_l['s']['a'] == 1
+    assert v._conf_l['s']['b'] == 2
     assert v._parser_l['/s'].kind == 's'
     assert v._parser_l['/s'].name == 's'
     assert v._parser_l['/s/a'].kind == 'v'
@@ -292,6 +321,9 @@ def test_abc():
 
     with pytest.raises(NotImplementedError):
         v = m_c.DefItemAbc('_').value_parse('dummy')
+    with pytest.raises(NotImplementedError):
+        v = m_c.DefItemAbc('_').default_get('dummy')
+
 
 def test_conf_errors():
     with pytest.raises(TypeError):
