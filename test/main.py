@@ -46,9 +46,9 @@ def fv_conf_object(fv_conf_dict):
             super(TestConf, self).__init__(set())
             self._l_parser = \
                 { '/main': m_c.DefSection()
-                , '/main/missing': m_c.DefValue(iv_default='default')
-                , '/main/lost': m_c.DefList(iv_default=list('default'))
-                , '/main/bool': m_c.DefValueEnum({'True': True, 'true': True, 'False': False, 'false': False})
+                , '/main/lost': m_c.DefValue(iv_default='default')
+                , '/main/lost_list': m_c.DefList(iv_default=list('default'))
+                , '/main/bool': m_c.DefValueChoise({'True': True, 'true': True, 'False': False, 'false': False})
                 , '/main/int': m_c.DefValueInt()
                 , '/main/bigint': m_c.DefValueInt()
                 , '/main/float': m_c.DefValueFloat()
@@ -60,9 +60,9 @@ def fv_conf_object(fv_conf_dict):
 
     v_ret = m_c.Config({
         'main' >> m_c.DefSection() << {
-            'missing' >> m_c.DefValue(iv_default='default'),
-            'lost' >> m_c.DefList(iv_default=list('default')),
-            'bool' >> m_c.DefValueEnum({'True': True, 'true': True, 'False': False, 'false': False}),
+            'lost' >> m_c.DefValue(iv_default='default'),
+            'lost_list' >> m_c.DefList(iv_default=list('default')),
+            'bool' >> m_c.DefValueChoise({'True': True, 'true': True, 'False': False, 'false': False}),
             'int' >> m_c.DefValueInt(),
             'bigint' >> m_c.DefValueInt(),
             'float' >> m_c.DefValueFloat(),
@@ -196,55 +196,63 @@ def test_opt_manager_errors():
     with pytest.raises(ValueError):
         v = m_c.DefValueInt().value_parse('bad')
     with pytest.raises(ValueError):
-        v = m_c.DefValueEnum({})
+        v = m_c.DefValueChoise({})
 
 
 def test_opt_manager():
     v = m_c.def_opt('main')
     assert v.name == 'main'
     assert v.kind == 's'
+    assert not v.required
     assert type(v) == m_c.DefSection
 
     v = m_c.def_opt('v_main')
     assert v.name == 'main'
     assert v.kind == 'v'
+    assert v.required
     assert type(v) == m_c.DefValue
 
     v = m_c.def_opt('l_main')
     assert v.name == 'main'
     assert v.kind == 'l'
+    assert v.required
     assert type(v) == m_c.DefList
 
     v = 'main' >> m_c.DefSection()
     assert v.name == 'main'
     assert v.kind == 's'
+    assert not v.required
     assert v != 'niam'
 
     v = 'main' >> m_c.DefValue(iv_default='ok')
     assert v.name == 'main'
     assert v.kind == 'v'
     assert v.default == 'ok'
+    assert not v.required
     assert v.value_parse('ok') == 'ok'
 
     v = 'main' >> m_c.DefValueInt(iv_default='1')
     assert v.name == 'main'
     assert v.kind == 'v'
     assert v.default == 1
+    assert not v.required
     assert v.value_parse('42') == 42
     assert v.value_parse('1KB') == 1024
 
     v = 'main' >> m_c.DefValueFloat(iv_default='1')
     assert v.name == 'main'
     assert v.default == 1.0
+    assert not v.required
     assert v.value_parse('42') == 42.0
 
-    v = 'main' >> m_c.DefValueEnum(il_mapping={'Yes': 1, 'No': -1}, iv_default='Yes')
+    v = 'main' >> m_c.DefValueChoise(il_mapping={'Yes': 1, 'No': -1}, iv_default='Yes')
     assert v.name == 'main'
     assert v.default == 1
+    assert not v.required
     assert v.value_parse('No') == -1
     assert v.value_parse('Yes') == 1
 
-    v = m_c.DefValueEnum(il_mapping=[('Yes', 1), ('No', -1)], iv_default='Yes')
+    v = m_c.DefValueChoise(il_mapping=[('Yes', 1), ('No', -1)], iv_default='Yes')
     assert v.value_parse('No') == -1
     assert v.value_parse('Yes') == 1
 
@@ -252,15 +260,18 @@ def test_opt_manager():
     assert v.name == 'main'
     assert v.kind == 'l'
     assert v.default == []
+    assert v.required
     assert v.value_parse('ok') == 'ok'
 
     v = m_c.DefList(iv_default=[])
     assert v.default == []
+    assert not v.required
 
     v = 'main' >> m_c.DefListInt(iv_default='42')
     assert v.name == 'main'
     assert v.kind == 'l'
     assert v.default == [4, 2]
+    assert not v.required
     assert v.value_parse('42') == 42
     assert v.value_parse('1KB') == 1024
 
@@ -273,6 +284,7 @@ def test_opt_manager():
     v = 'main' >> m_c.DefListFloat(iv_default='42')
     assert v.name == 'main'
     assert v.kind == 'l'
+    assert not v.required
     assert v.default == [4.0, 2.0]
     assert v.value_parse('42') == 42.0
 
@@ -293,19 +305,33 @@ def test_conf_load():
     assert v._conf_l['s']['b'] == 2
     assert v._parser_l['/s'].kind == 's'
     assert v._parser_l['/s'].name == 's'
+    assert not v._parser_l['/s'].required
     assert v._parser_l['/s/a'].kind == 'v'
     assert v._parser_l['/s/a'].name == 'a'
+    assert v._parser_l['/s/a'].required
     assert v._parser_l['/s/b'].kind == 'v'
     assert v._parser_l['/s/b'].name == 'b'
+    assert v._parser_l['/s/b'].required
     assert v._parser_l['/s/c'].kind == 'l'
     assert v._parser_l['/s/c'].name == 'c'
+    assert v._parser_l['/s/c'].required
     assert v._parser_l['/s/l'].kind == 'l'
     assert v._parser_l['/s/l'].name == 'l'
+    assert v._parser_l['/s/l'].required
     assert v._parser_l['/s/v'].kind == 'v'
     assert v._parser_l['/s/v'].name == 'v'
+    assert v._parser_l['/s/v'].required
+    with pytest.raises(KeyError):
+        print(v['/s/v'])
+    with pytest.raises(KeyError):
+        print(v['/s/l'])
     assert len([_ for _ in v._parser_l.keys() if _ not in {'/s', '/s/a', '/s/b', '/s/c', '/s/l', '/s/v'}]) == 0
-    assert v._conf_l['s']['a'] == 1
-    assert v._conf_l['s']['b'] == 2
+    v = m_c.Config({'v_0' >> m_c.DefValue(iv_required=False) << {'v_00' >> m_c.DefValue() << {'v_000' >> m_c.DefValue(iv_default='42')}}})
+    v.load_d({})
+    with pytest.raises(KeyError):
+        print(v['/0/00'])
+    assert v['/0'] is None
+    assert v['/0/00/000'] == '42'
     v.load_d([('s', {'a': 1, 'b': 2})])
     assert v._conf_l['s']['a'] == 1
     assert v._conf_l['s']['b'] == 2

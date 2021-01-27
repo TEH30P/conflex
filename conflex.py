@@ -39,6 +39,7 @@ class DefOptAbc:
         self.kind: str = iv_kind
         self.name: str = ''
         self.child_l: Set = set()
+        self.required = False
 
     def name_set(self, iv: str):
         if len(iv) == 0:
@@ -108,10 +109,11 @@ class DefItemAbc(DefOptAbc):
 
 
 class DefValue(DefItemAbc):
-    def __init__(self, iv_default=None):
+    def __init__(self, iv_default=None, iv_required=None):
         super().__init__('v')
         if iv_default is None:
             self.default = None
+            self.required = True if iv_required is None else iv_required
         elif type(iv_default) is not str and isinstance(iv_default, (Mapping, Sequence)):
             raise TypeError(r'Default value for `v` kind of options should be str, int, float, etc.')
         else:
@@ -120,23 +122,26 @@ class DefValue(DefItemAbc):
     def value_parse(self, iv):
         return iv
 
+    def default_get(self, iv_path: str):
+        if self.required:
+            raise KeyError(f'The config option at {iv_path} is required.')
+        return self.default
+
 
 class DefValueInt(DefValue):
     def value_parse(self, iv: str) -> int:
         return _opt_int_parse(iv)
 
 
-class DefValueEnum(DefValue):
-    def __init__(self, il_mapping: dict, iv_default=None):
+class DefValueChoise(DefValue):
+    def __init__(self, il_mapping: dict, iv_default=None, iv_required=None):
         if isinstance(il_mapping, Mapping):
             self._mapping_l = il_mapping
         else:
             self._mapping_l = dict(il_mapping)
-
         if len(self._mapping_l) == 0:
             raise ValueError(r'Parameter il_mapping is empty.')
-
-        super().__init__(iv_default)
+        super().__init__(iv_default, iv_required)
 
     def value_parse(self, iv):
         return self._mapping_l[iv]
@@ -148,17 +153,24 @@ class DefValueFloat(DefValue):
 
 
 class DefList(DefItemAbc):
-    def __init__(self, iv_default: list = None):
+    def __init__(self, iv_default=None, iv_required=None):
         super().__init__('l')
         if iv_default is None:
             self.default = []
+            self.required = True if iv_required is None else iv_required
         else:
             self.default = \
                 [self.value_parse(v)
-                 for v in (iv_default if isinstance(iv_default, Sequence) else list(iv_default))]
+                 for v in (iv_default if isinstance(iv_default, Sequence) else [iv_default])]
+            self.required = False
 
     def value_parse(self, iv):
         return iv
+    
+    def default_get(self, iv_path: str):
+        if self.required:
+            raise KeyError(f'The config option at {iv_path} is required.')
+        return self.default
 
 
 class DefListInt(DefList):
@@ -246,6 +258,18 @@ class Config(Mapping):
         elif v_key_part_len == 1:
             l_ret = (str(self._parser_l[f'{iv_parent_path}/{iv_raw}'].kind), iv_raw)
         return l_ret
+
+    @staticmethod
+    def _subkey_get(iv_kind: str, iv_key: str, iv_parent) -> list:
+        if iv_parent is None:
+            return list()
+        if not isinstance(iv_parent, Mapping):
+            return [None]
+        v_opt = iv_parent.get(iv_key, iv_parent.get(f'{iv_kind}_{iv_key}'))
+        if iv_kind == 'l' and isinstance(v_opt, list):
+            return v_opt
+        else:
+            return [v_opt]
 
     def _value_get(self, iv_path: str):
         if len(iv_path) == 0:

@@ -4,10 +4,14 @@ s_main:
   v_bigint: {v: 2KB}
   v_float: {v: 3.141592 }
   l_int_list:
-    l:
-      - 1
-      - 2
-      - 3
+      - {v: 1}
+      - {v: 2}
+      - {v: 3}
+  l_complex_list:
+    - {v: 1,  as: I}
+    - {v: 5,  as: V}
+    - {v: 10, as: X}
+    - {v: 42}
   v_complex:
     v: ok
     v_kind: nice

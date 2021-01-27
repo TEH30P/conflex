@@ -7,6 +7,11 @@ s_main:
     - 1
     - 2
     - 3
+  l_complex_list:
+    - {v: 1,  v_as: I}
+    - {v: 5,  v_as: V}
+    - {v: 10, v_as: X}
+    - 42
   v_complex:
     v: ok
     v_kind: nice
