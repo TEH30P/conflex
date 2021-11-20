@@ -89,6 +89,16 @@ def test_config_values(fv_conf_object):
     assert fv_conf_object['/main/complex/kind'] == 'nice'
 
 
+def test_subconfig_values(fv_conf_object):
+    v_sconf_object = fv_conf_object.node('/main/complex')
+    assert v_sconf_object.v == 'ok'
+    assert v_sconf_object['/kind'] == 'nice'
+    assert [v.v for v in fv_conf_object.slice('/main/complex_list')] == [1, 5, 10, 42]
+    assert [v['/as'] for v in fv_conf_object.slice('/main/complex_list')] == ['I', 'V', 'X', '?']
+    assert [v.v for v in fv_conf_object.slice('/main/complex')] == ['ok']
+    assert [v['/kind'] for v in fv_conf_object.slice('/main/complex')] == ['nice']
+
+
 def test_config_errors(fv_conf_object):
     with pytest.raises(TypeError) as x:
         v = fv_conf_object['/main']
@@ -106,6 +116,24 @@ def test_config_errors(fv_conf_object):
         v = fv_conf_object['']
 
 
+def test_subconfig_errors(fv_conf_object):
+    with pytest.raises(TypeError) as x:
+        v = fv_conf_object.node('/main').v
+    v_sconf_object = fv_conf_object.node('/main/complex')
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['/dummy']
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['/l_kind']
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['/z_kind']
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['kind']
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['']
+    with pytest.raises(KeyError) as x:
+        v = v_sconf_object['/']
+
+
 def test_config_kind_values(fv_conf_object):
     assert fv_conf_object['/s_main/v_lost'] == 'default'
     assert fv_conf_object['/s_main/l_lost_list'] == list('default')
@@ -118,6 +146,19 @@ def test_config_kind_values(fv_conf_object):
     assert fv_conf_object['/s_main/v_float'] == 3.141592
     assert fv_conf_object['/s_main/v_complex'] == 'ok'
     assert fv_conf_object['/s_main/v_complex/v_kind'] == 'nice'
+
+
+def test_subconfig_kind_values(fv_conf_object):
+    v_sconf_object = fv_conf_object.node('/s_main/v_complex')
+    assert v_sconf_object.v == 'ok'
+    assert v_sconf_object['/v_kind'] == 'nice'
+    v_sconf_object = fv_conf_object.node('/s_main/l_complex_list')
+    assert v_sconf_object.v == [1, 5, 10, 42]
+    assert v_sconf_object['/v_as'] == ['I', 'V', 'X', '?']
+    assert [v.v for v in fv_conf_object.slice('/s_main/l_complex_list')] == [1, 5, 10, 42]
+    assert [v['/v_as'] for v in fv_conf_object.slice('/s_main/l_complex_list')] == ['I', 'V', 'X', '?']
+    assert [v.v for v in fv_conf_object.slice('/s_main/v_complex')] == ['ok']
+    assert [v['/v_kind'] for v in fv_conf_object.slice('/s_main/v_complex')] == ['nice']
 
 
 def test_config_kind_errors(fv_conf_object):
@@ -135,6 +176,8 @@ def test_config_kind_errors(fv_conf_object):
         v = fv_conf_object['/s_main/z_int']
     with pytest.raises(KeyError):
         v = fv_conf_object['']
+    with pytest.raises(AssertionError):
+        v = fv_conf_object[None]
 
 
 def test_config_iter(fv_conf_object):
@@ -185,7 +228,7 @@ def test_opt_manager_errors():
         v = (m_c.DefValue() == 42)
     with pytest.raises(KeyError):
         v = (('main' >> m_c.DefValue()) == 'main')
-    with pytest.raises(TypeError):
+    with pytest.raises(AssertionError):
         v = m_c.DefValue(iv_default={})
     with pytest.raises(ValueError):
         v = m_c.DefValueInt(iv_default='bad')
@@ -299,10 +342,17 @@ def test_opt_manager():
 
 
 def test_conf_load():
-    v = m_c.Config({'s' >> m_c.DefSection() << {'v_a', 'v_b', 'l_c', 'l' >> m_c.DefList(), 'v' >> m_c.DefValue()}})
+    v = m_c.Config(
+        {'s' >> m_c.DefSection() <<
+            {'v_a',
+             'v_b',
+             'l_c',
+             'l' >> m_c.DefList(),
+             'v' >> m_c.DefValue()}
+         })
     v.load_d({'s': {'a': 1, 'b': 2}})
-    assert v._conf_l['s']['a'] == 1
-    assert v._conf_l['s']['b'] == 2
+    assert v._walker_l[0].node_curr_l[0]['s']['a'] == 1
+    assert v._walker_l[0].node_curr_l[0]['s']['b'] == 2
     assert v._parser_l['/s'].kind == 's'
     assert v._parser_l['/s'].name == 's'
     assert not v._parser_l['/s'].required
@@ -333,8 +383,23 @@ def test_conf_load():
     assert v['/0'] is None
     assert v['/0/00/000'] == '42'
     v.load_d([('s', {'a': 1, 'b': 2})])
-    assert v._conf_l['s']['a'] == 1
-    assert v._conf_l['s']['b'] == 2
+    assert v._walker_l[0].node_curr_l[0]['s']['a'] == 1
+    assert v._walker_l[0].node_curr_l[0]['s']['b'] == 2
+
+
+def test_subconf_load():
+    v_c = m_c.Config(
+        {'s' >> m_c.DefSection() <<
+            {'v_a' >> m_c.DefValue() <<
+                {'v_aa', 'v_ab'}
+            }
+        })
+    v_c.load_d({'s': {'a': {'v': 'a0', 'aa': 0, 'ab': 1}}})
+    v_sc = v_c.node('/s/a')
+    v_sc.load_d({'s': {'a': {'v': 'a1', 'aa': 42, 'ab': 24}}})
+    assert v_sc.v == 'a1'
+    assert v_sc['/aa'] == 42
+    v_sc.load_d([('s', {'a': {'v': 'a1'}})])
 
 
 def test_abc():
@@ -352,5 +417,12 @@ def test_abc():
 
 
 def test_conf_errors():
-    with pytest.raises(TypeError):
+    with pytest.raises(AssertionError):
         v = m_c.Config(42)
+    with pytest.raises(KeyError):
+        v = m_c.Config({
+            'main' >> m_c.DefSection() << {
+                'twin' >> m_c.DefValue(iv_default='default'),
+                'twin' >> m_c.DefValueInt()
+            }
+        })
