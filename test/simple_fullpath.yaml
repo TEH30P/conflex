@@ -3,6 +3,7 @@ s_main:
   v_int: {v: 42}
   v_bigint: {v: 2KB}
   v_float: {v: 3.141592 }
+  l_empty_list: []
   l_int_list:
       - {v: 1}
       - {v: 2}

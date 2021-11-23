@@ -1,4 +1,5 @@
-from typing import Mapping, Sequence, Set, List, Any, Union
+from typing import Mapping, Sequence, List, Iterable, Any, Union
+from abc import ABC, abstractmethod
 
 import copy as m_cp
 import logging as m_log
@@ -6,21 +7,29 @@ import logging as m_log
 gv_log = m_log.getLogger(__name__)
 NODE_SEP: str = '/'
 
+
 def _opt_int_parse(iv: str) -> int:
     if type(iv) is not str:
         return int(iv)
-
-    v_mult: int = \
-        { 'KB': 1024
-        , 'MB': 1024 * 1024
-        , 'GB': 1024 * 1024 * 1024
-        , 'TB': 1024 * 1024 * 1024 * 1024
-        , 'PB': 1024 * 1024 * 1024 * 1024 * 1024
+    v_m: int = {
+        'KB': 1024,
+        'MB': 1024 * 1024,
+        'GB': 1024 * 1024 * 1024,
+        'TB': 1024 * 1024 * 1024 * 1024,
+        'PB': 1024 * 1024 * 1024 * 1024 * 1024
         }.get(iv[-2:], 1)
-    if v_mult > 1:
-        return int(iv[:-2]) * v_mult
-    else:
-        return int(iv)
+    if v_m > 1:
+        return int(iv[:-2]) * v_m
+    v_m: int = {
+        'K': 1000,
+        'M': 1000 * 1000,
+        'G': 1000 * 1000 * 1000,
+        'T': 1000 * 1000 * 1000 * 1000,
+        'P': 1000 * 1000 * 1000 * 1000 * 1000
+        }.get(iv[-1:], 1)
+    if v_m > 1:
+        return int(iv[:-1]) * v_m
+    return int(iv)
 
 
 def _opt_float_parse(iv: str) -> float:
@@ -38,14 +47,15 @@ def _opt_name_split(iv: str):
         return '', iv
 
 
-class DefOptAbc:
+class NodeAbc(ABC):
     def __init__(self, iv_kind: str):
         self.kind: str = iv_kind
         self.name: str = ''
-        self.child_l: Set = set()
+        self.child_l: Sequence = []
         self.required = False
 
     def name_set(self, iv: str):
+        assert isinstance(iv, str)
         if len(iv) == 0:
             raise ValueError('Config option name must not to be empty.')
 
@@ -62,8 +72,10 @@ class DefOptAbc:
 
     # self << iv
     def __lshift__(self, iv):
-        if isinstance(iv, Set):
-            self.child_l = frozenset(iv)
+        if not isinstance(iv, str) and isinstance(iv, Sequence):
+            self.child_l = iv
+        elif isinstance(iv, NodeAbc):
+            self.child_l = (iv,)
         else:
             raise SyntaxError(
                 'Config option definition syntax is:'
@@ -83,43 +95,33 @@ class DefOptAbc:
     def __hash__(self):
         return hash(self.name)
 
-    def __eq__(self, iv):
-        # !!!TODO: deprecated, duplicate detection should be in `Config.__init__` and parser tree should be a `dict`.
-        if isinstance(iv, str):
-            if iv == self.name:
-                raise KeyError(f'The option named `{self.name}` is already exists.')
-        elif isinstance(iv, DefOptAbc):
-            if iv.name == self.name:
-                raise KeyError(f'The option named `{self.name}` is already exists.')
-        else:
-            raise TypeError('Only plain strings `str` or derived from `DefOptAbc` objects allowed.')
-        return False
 
-
-class DefSection(DefOptAbc):
+class Section(NodeAbc):
     def __init__(self):
         super().__init__('s')
 
 
-class DefItemAbc(DefOptAbc):
+class OptionAbc(NodeAbc):
     def __init__(self, iv_kind: str):
         super().__init__(iv_kind)
         self.default = None
 
+    @abstractmethod
     def value_parse(self, iv):
-        raise NotImplementedError('Method must be overridden.')
+        raise NotImplementedError()  # pragma: no cover
 
+    @abstractmethod
     def default_get(self, iv_path: str):
-        raise NotImplementedError('Method must be overridden.')
+        raise NotImplementedError()  # pragma: no cover
 
 
-class DefValue(DefItemAbc):
+class OptValue(OptionAbc):
     def __init__(self, iv_default=None, iv_required: bool = None):
         super().__init__('v')
         if iv_default is not None:
             # !!!TODO: replace with allowable type list
-            assert isinstance(iv_default, str) or not isinstance(iv_default, (Mapping, Sequence)) \
-                , r'Default value for `v` kind of options should be str, int, float, etc.'
+            assert isinstance(iv_default, str) or not isinstance(iv_default, (Mapping, Sequence)),\
+                r'Default value for `v` kind of options should be str, int, float, etc.'
             self.default = self.value_parse(iv_default)
         else:
             self.default = None
@@ -134,12 +136,12 @@ class DefValue(DefItemAbc):
         return self.default
 
 
-class DefValueInt(DefValue):
+class OptVInt(OptValue):
     def value_parse(self, iv: str) -> int:
         return _opt_int_parse(iv)
 
 
-class DefValueChoise(DefValue):
+class OptVChoice(OptValue):
     def __init__(self, il_mapping: dict, iv_default=None, iv_required: bool = None):
         if isinstance(il_mapping, Mapping):
             self._mapping_l = il_mapping
@@ -153,12 +155,12 @@ class DefValueChoise(DefValue):
         return self._mapping_l[iv]
 
 
-class DefValueFloat(DefValue):
+class OptVFloat(OptValue):
     def value_parse(self, iv: str) -> float:
         return _opt_float_parse(iv)
 
 
-class DefList(DefItemAbc):
+class OptList(OptionAbc):
     def __init__(self, iv_default=None, iv_required: bool = None):
         super().__init__('l')
         if iv_default is None:
@@ -179,126 +181,161 @@ class DefList(DefItemAbc):
         return self.default
 
 
-class DefListInt(DefList):
+class OptLInt(OptList):
     def value_parse(self, iv: str) -> int:
         return _opt_int_parse(iv)
 
 
-class DefListFloat(DefList):
+class OptLFloat(OptList):
     def value_parse(self, iv: str) -> float:
         return _opt_float_parse(iv)
 
 
-def def_opt(iv_name: str) -> DefOptAbc:
+def as_node(iv_name: str) -> NodeAbc:
     v_kind, v_name = _opt_name_split(iv_name)
 
     if v_kind in ['', 's']:
-        return v_name >> DefSection()
+        return v_name >> Section()
     elif v_kind == 'v':
-        return v_name >> DefValue()
+        return v_name >> OptValue()
     elif v_kind == 'l':
-        return v_name >> DefList()
+        return v_name >> OptList()
 
 
-def _parser_dict_create(il_tree: set) -> dict:
+def _parser_dict_create(il_tree) -> dict:
     """Create plain dict parser from input tree of opt definitions `DefOptAbc objects`.
 
-    :param il_tree: Set
+    :param il_tree: NodeAbc or Sequence
     :return: None
     """
-
-    assert isinstance(il_tree, Set), f'{type(il_tree).__qualname__} is not `set` of `frozenset`'
-
-    l_l_root: list = [('', il_tree)]
+    assert isinstance(il_tree, (NodeAbc, Sequence)), f'{type(il_tree).__qualname__} is not NodeAbc or Sequence'
+    l_l_root: list = [('', [il_tree] if isinstance(il_tree, NodeAbc) else il_tree)]
     l_plain: dict = {}
-
     while len(l_l_root):
         v_kp, l_root = l_l_root.pop()
-
+        if v_kp:
+            v_kp = f'{v_kp}{NODE_SEP}'
         for v_v in l_root:
-            if isinstance(v_v, DefOptAbc):
+            if isinstance(v_v, NodeAbc):
                 if len(v_v.child_l):
-                    l_l_root.append((f'{v_kp}{NODE_SEP}{v_v.name}', v_v.child_l))
-                    v_v.child_l = frozenset()
-                l_plain[f'{v_kp}{NODE_SEP}{v_v.name}'] = v_v
+                    child_l: list = v_v.child_l if isinstance(v_v.child_l, list) else list(v_v.child_l)
+                    l_l_root.append((f'{v_kp}{v_v.name}', child_l))
+                    v_v.child_l = ()
+                if f'{v_kp}{v_v.name}' in l_plain:
+                    raise KeyError(f'The option named `{v_kp}{v_v.name}` is already exists.')
+                l_plain[f'{v_kp}{v_v.name}'] = v_v
             elif isinstance(v_v, str):
-                l_plain[f'{v_kp}{NODE_SEP}{_opt_name_split(v_v)[1]}'] = def_opt(v_v)
-
+                if f'{v_kp}{_opt_name_split(v_v)[1]}' in l_plain:
+                    raise KeyError(f'The option named `{v_kp}{_opt_name_split(v_v)[1]}` is already exists.')
+                l_plain[f'{v_kp}{_opt_name_split(v_v)[1]}'] = as_node(v_v)
     return l_plain
 
 
 class ConfTreeWalker:
+    class Missing:
+        ...
+
     def __init__(self, il_tree_slice: list = []):
-        self.node_curr_l: list = il_tree_slice
-        self.kind_curr: str = ''
-        self.key_curr: str = ''
-        self.path_curr: str = ''
-        self.path_raw_curr: str = ''
+        self.node_l: list = il_tree_slice
+        self.kind: str = ''
+        self.key: str = ''
+        self.path: str = ''
+        self.path_raw: str = ''
         self.is_slice_list = False
 
-    def move(self, il_parser: Mapping[str, DefItemAbc], iv_key_raw: str):
+    def move(self, il_parser: Mapping[str, OptionAbc], iv_key_raw: str):
         self._curr_set(il_parser, iv_key_raw)
-        self.is_slice_list = True if self.is_slice_list else self.kind_curr == 'l'
+        self.is_slice_list = True if self.is_slice_list else self.kind == 'l'
         l_node_new: list = []
-        for v_opt in self.node_curr_l:
-            if v_opt is None:
-                continue
+        for v_opt in self.node_l:
             if not isinstance(v_opt, Mapping):
-                l_node_new.append(None)
+                l_node_new.append(self.Missing())
                 continue
-            v_opt = v_opt.get(self.key_curr, v_opt.get(f'{self.kind_curr}_{self.key_curr}'))
-            if self.kind_curr == 'l' and isinstance(v_opt, list):
+            if self.key in v_opt:
+                v_opt = v_opt[self.key]
+            elif f'{self.kind}_{self.key}' in v_opt:
+                v_opt = v_opt[f'{self.kind}_{self.key}']
+            else:
+                l_node_new.append(self.Missing())
+                continue
+            if self.kind == 'l' and isinstance(v_opt, list):
                 l_node_new.extend(v_opt)
             else:
                 l_node_new.append(v_opt)
-        self.node_curr_l = l_node_new
+        self.node_l = l_node_new
 
-    def value_get(self, il_parser: Mapping[str, DefItemAbc]) -> Union[list, Any]:
-        if self.kind_curr == 's':
+    def node_exist(self) -> bool:
+        return any([type(v) is not self.Missing for v in self.node_l])
+
+    def slice_exist(self, iv_idx) -> bool:
+        v_nd = self.node_l[iv_idx] if len(self.node_l) > iv_idx else None
+        return v_nd is not None and type(v_nd) is not self.Missing
+
+    def value_get(self, il_parser: Mapping[str, OptionAbc]) -> Union[list, Any]:
+        if self.kind == 's':
             raise TypeError('Sections can not have a value.')
-        v_parser: DefItemAbc = il_parser[self.path_curr]
+        v_parser: OptionAbc = il_parser[self.path]
         l_ret: list = []
-        if len(self.node_curr_l) == 0:
-            l_ret = v_parser.default_get(self.path_raw_curr) \
-                if self.kind_curr == 'l' else [v_parser.default_get(self.path_raw_curr)]
-        else:
-            for v_opt in self.node_curr_l:
-                if isinstance(v_opt, Mapping):
-                    v_opt = v_opt.get('v')
-                if v_opt is None:
-                    if self.kind_curr == 'l':
-                        l_ret.extend(v_parser.default_get(self.path_raw_curr))
-                    if self.kind_curr == 'v':
-                        l_ret.append(v_parser.default_get(self.path_raw_curr))
-                else:
-                    l_ret.append(v_parser.value_parse(v_opt))
+        for v_opt in self.node_l:
+            if isinstance(v_opt, Mapping):
+                v_opt = v_opt.get('v')
+            if type(v_opt) is self.Missing:
+                if self.kind == 'l':
+                    l_ret.extend(v_parser.default_get(self.path_raw))
+                if self.kind == 'v':
+                    l_ret.append(v_parser.default_get(self.path_raw))
+            else:
+                l_ret.append(v_parser.value_parse(v_opt))
         if self.is_slice_list:
             return l_ret
         else:
             return l_ret[0] if len(l_ret) else None
 
-    def _curr_set(self, il_parser: Mapping[str, DefItemAbc], iv_raw: str):
+    def _curr_set(self, il_parser: Mapping[str, OptionAbc], iv_raw: str):
         l_key_part = iv_raw.split('_', maxsplit=1)
         v_key_part_len = len(l_key_part)
+        v_path_pref: str = f'{self.path}{NODE_SEP}' if self.path else ''
         if v_key_part_len == 2:
             if l_key_part[0] not in ['s', 'v', 'l']:
-                self.kind_curr = str(il_parser[f'{self.path_curr}{NODE_SEP}{iv_raw}'].kind)
-                self.key_curr = iv_raw
-            elif il_parser[f'{self.path_curr}{NODE_SEP}{l_key_part[1]}'].kind != l_key_part[0]:
-                raise KeyError(f'Option `{self.path_curr}{NODE_SEP}{l_key_part[1]}` exist but have different kind.')
+                self.kind = str(il_parser[f'{v_path_pref}{iv_raw}'].kind)
+                self.key = iv_raw
+            elif il_parser[f'{v_path_pref}{l_key_part[1]}'].kind != l_key_part[0]:
+                raise KeyError(f'Option `{v_path_pref}{l_key_part[1]}` exist but have different kind.')
             else:
-                self.kind_curr, self.key_curr = l_key_part
+                self.kind, self.key = l_key_part
         elif v_key_part_len == 1:
-            self.kind_curr = str(il_parser[f'{self.path_curr}{NODE_SEP}{iv_raw}'].kind)
-            self.key_curr = iv_raw
-        self.path_raw_curr += f'{NODE_SEP}{iv_raw}'
-        self.path_curr += f'{NODE_SEP}{self.key_curr}'
+            self.kind = str(il_parser[f'{v_path_pref}{iv_raw}'].kind)
+            self.key = iv_raw
+        self.path_raw = f'{v_path_pref}{iv_raw}'
+        self.path = f'{v_path_pref}{self.key}'
 
 
-class Config(Mapping):
-    def __init__(self, il_parser: set = None):
+def _walker_node_merge(il_walker: List[ConfTreeWalker]) -> ConfTreeWalker:
+    v_wl = il_walker[-1]
+    for v in il_walker:
+        if v.node_exist():
+            v_wl = v
+    return v_wl
+
+
+def _walker_slice_merge(il_walker: List[ConfTreeWalker], iv_node_idx: int) -> ConfTreeWalker:
+    v_nd = None
+    for v in il_walker:
+        if v.slice_exist(iv_node_idx):
+            v_nd = v.node_l[iv_node_idx]
+    v_wl: ConfTreeWalker = il_walker[-1]
+    v_r = ConfTreeWalker([v_nd])
+    v_r.key = v_wl.key
+    v_r.kind = v_wl.kind if v_wl.kind == 's' else 'v'
+    v_r.path = v_wl.path
+    v_r.path_raw = v_wl.path_raw
+    return v_r
+
+
+class Config(Mapping[str, Any]):
+    def __init__(self, il_parser: Union[NodeAbc, Sequence] = None):
         self._walker_l = [ConfTreeWalker()]
-        self._parser_l: Mapping[str, DefItemAbc] = _parser_dict_create(il_parser) if il_parser is not None else {}
+        self._parser_l: Mapping[str, OptionAbc] = _parser_dict_create(il_parser) if il_parser is not None else {}
         self._iter = None
 
     def _my_iter(self):
@@ -306,8 +343,8 @@ class Config(Mapping):
             self._iter = ConfigIter(self, self._parser_l)
         return self._iter
 
-    def __getitem__(self, item):
-        return self._node_get(item).value_get(self._parser_l)
+    def __getitem__(self, item: str):
+        return _walker_node_merge(self._node_get(self._walker_l_copy(), item)).value_get(self._parser_l)
 
     def __iter__(self):
         return m_cp.copy(self._my_iter())
@@ -315,96 +352,92 @@ class Config(Mapping):
     def __len__(self):
         return len(self._my_iter())
 
-    def _node_get(self, iv_path: str) -> ConfTreeWalker:
+    def _walker_l_copy(self) -> List[ConfTreeWalker]:
+        return [m_cp.copy(v) for v in self._walker_l]
+
+    def _node_get(self, il_walker: List[ConfTreeWalker], iv_path: str) -> List[ConfTreeWalker]:
         assert isinstance(iv_path, str), r'Option path is not a str.'
         if len(iv_path) == 0:
             raise KeyError(r'Option path is empty.')
-        if iv_path[0] != NODE_SEP:
-            raise KeyError(r'Option path have invalid format. '
-                           f'Format is: `{{ "{NODE_SEP}" , option-or-section }}`,'
-                           f' "{NODE_SEP}" at beginning is required.')
-        v_path_raw = iv_path[1:]
-        v_walker = m_cp.copy(self._walker_l[0])
-        for v_key_raw in v_path_raw.split(NODE_SEP):
+        l_wl = il_walker
+        for v_key_raw in iv_path.split(NODE_SEP):
             if len(v_key_raw) == 0:
                 raise KeyError(r'Option path have invalid format.'
-                               f'Format is: `{{ "{NODE_SEP}" , option-or-section }}`,'
+                               f'Format is: `option-or-section , {{ "{NODE_SEP}" , option-or-section }}`,'
                                f' repeatable "{NODE_SEP}" is prohibited.')
-            v_walker.move(self._parser_l, v_key_raw)
-        return v_walker
+            for v in l_wl:
+                v.move(self._parser_l, v_key_raw)
+        return l_wl
 
     def slice(self, iv_path: str):
-        v_walker: ConfTreeWalker = self._node_get(iv_path)
-        for v_node in v_walker.node_curr_l:
-            v_child = ConfTreeWalker([v_node])
-            v_child.key_curr = v_walker.key_curr
-            v_child.kind_curr = v_walker.kind_curr if v_walker.kind_curr == 's' else 'v'
-            v_child.path_curr = v_walker.path_curr
-            v_child.path_raw_curr = v_walker.path_raw_curr
-            yield SubConfig([v_child], self._parser_l)
+        l_wl: List[ConfTreeWalker] = self._node_get(self._walker_l_copy(), iv_path)
+        v_len = max((len(v.node_l) for v in l_wl))
+        for v_idx in range(v_len):
+            yield SubConfig([_walker_slice_merge(l_wl, v_idx)], self._parser_l)
 
     def node(self, iv_path: str):
-        return SubConfig([self._node_get(iv_path)], self._parser_l)
+        return SubConfig(self._node_get(self._walker_l_copy(), iv_path), self._parser_l)
 
-    def load_d(self, il_raw_conf) -> None:
-        if isinstance(il_raw_conf, Mapping):
-            self._walker_l[0].node_curr_l = [il_raw_conf]
-        else:
-            self._walker_l[0].node_curr_l = [dict(il_raw_conf)]
+    def load_dicts(self, ill_raw_conf: Iterable[Union[Mapping, Iterable]]) -> None:
+        l_wl: List[ConfTreeWalker] = []
+        for l_raw_conf in ill_raw_conf:
+            if isinstance(l_raw_conf, Mapping):
+                l_wl.append(ConfTreeWalker([l_raw_conf]))
+            else:
+                l_wl.append(ConfTreeWalker([dict(l_raw_conf)]))
+        self._walker_l = l_wl
+        self._iter = None
 
 
 class SubConfig(Config):
-    def __init__(self, il_parent_opt: Sequence[ConfTreeWalker], il_parser: Mapping[str, DefItemAbc]):
+    def __init__(self, il_parent_opt: List[ConfTreeWalker], il_parser: Mapping[str, OptionAbc]):
         super().__init__()
-        self._walker_l: Sequence[ConfTreeWalker] = il_parent_opt
+        self._walker_l = il_parent_opt
         self._parser_l = il_parser
-        self.kind = il_parent_opt[0].kind_curr
-        self.path = il_parent_opt[0].path_raw_curr
+        self.kind = il_parent_opt[0].kind
+        self.path = il_parent_opt[0].path_raw
 
     @property
     def v(self):
-        return self._walker_l[0].value_get(self._parser_l)
+        return _walker_node_merge(self._walker_l).value_get(self._parser_l)
 
-    def _node_get(self, iv_path: str) -> ConfTreeWalker:
+    def _node_get(self, il_walker: List[ConfTreeWalker], iv_path: str) -> List[ConfTreeWalker]:
         assert isinstance(iv_path, str), r'Option sub-path is not a str.'
         if len(iv_path) == 0:
             raise KeyError(r'Option sub-path is empty.')
-        if iv_path[0] != NODE_SEP:
-            raise KeyError(r'Option sub-path have invalid format. '
-                           f'Format is: `{{ "{NODE_SEP}" , option-or-section }}`,'
-                           f' "{NODE_SEP}" at beginning is required.')
-        v_path_raw = iv_path[1:]
-        v_walker = m_cp.copy(self._walker_l[0])
-        for v_key_raw in v_path_raw.split(NODE_SEP):
+        l_wl = il_walker
+        for v_key_raw in iv_path.split(NODE_SEP):
             if len(v_key_raw) == 0:
                 raise KeyError(r'Option sub-path have invalid format.'
-                               f'Format is: `{{ "{NODE_SEP}" , option-or-section }}`,'
+                               f'Format is: `option-or-section , {{ "{NODE_SEP}" , option-or-section }}`,'
                                f' repeatable "{NODE_SEP}" is prohibited.')
-            v_walker.move(self._parser_l, v_key_raw)
-        return v_walker
+            for v in l_wl:
+                v.move(self._parser_l, v_key_raw)
+        return l_wl
 
-    def load_d(self, il_raw_conf) -> None:
-        v_path: str = self._walker_l[0].path_raw_curr
-        if isinstance(il_raw_conf, Mapping):
-            self._walker_l[0] = ConfTreeWalker([il_raw_conf])
-        else:
-            self._walker_l[0] = ConfTreeWalker([dict(il_raw_conf)])
-        self._walker_l[0] = self._node_get(v_path)
+    def load_dicts(self, ill_raw_conf: Iterable[Union[Mapping, Iterable]]) -> None:
+        l_wl: List[ConfTreeWalker] = []
+        for l_raw_conf in ill_raw_conf:
+            if isinstance(l_raw_conf, Mapping):
+                l_wl.append(ConfTreeWalker([l_raw_conf]))
+            else:
+                l_wl.append(ConfTreeWalker([dict(l_raw_conf)]))
+        self._walker_l = self._node_get(l_wl, self._walker_l[0].path_raw)
+        self._iter = None
 
 
 class ConfigIter:
-    def __init__(self, iv_parent: Config, il_option: Mapping[str, DefItemAbc]):
-        self._parent = iv_parent
-        self._path_l: list = [v_k for v_k, v_i in il_option.items() if v_i.kind != 's']
-        self._path_len = len(self._path_l)
-        self._path_idx = -1
+    # !!!TODO: optimize this. switch to use `ConfTreeWalker`.
+    def __init__(self, iv_parent: Config, il_parser: Mapping[str, OptionAbc]):
+        self._conf = iv_parent
+        self._parser_iter = il_parser.items().__iter__()
+        self._parser = il_parser
 
     def __next__(self):
-        self._path_idx += 1
-        if self._path_idx >= self._path_len:
-            raise StopIteration
-        else:
-            return self._path_l[self._path_idx], self._parent[self._path_l[self._path_idx]]
+        v_path, v_opt = self._parser_iter.__next__()
+        while v_opt.kind == 's':
+            v_path, v_opt = self._parser_iter.__next__()
+        return v_path, self._conf[v_path]
 
     def __len__(self):
-        return len(self._path_l)
+        return len([v_k for v_k, v_i in self._parser.items() if v_i.kind != 's'])

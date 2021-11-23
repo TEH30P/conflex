@@ -3,6 +3,7 @@ main:
   int: 42
   bigint: 2KB
   float: 3.141592
+  empty_list: []
   int_list:
     - 1
     - 2
