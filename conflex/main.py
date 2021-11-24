@@ -1,4 +1,4 @@
-from typing import Mapping, Sequence, List, Iterable, Any, Union
+from typing import Mapping, Sequence, List, Iterable, Sized, Tuple, Any, Union, AbstractSet
 from abc import ABC, abstractmethod
 
 import copy as m_cp
@@ -48,6 +48,9 @@ def _opt_name_split(iv: str):
 
 
 class NodeAbc(ABC):
+    """
+    Abstract base class for all config options and sections.
+    """
     def __init__(self, iv_kind: str):
         self.kind: str = iv_kind
         self.name: str = ''
@@ -97,11 +100,17 @@ class NodeAbc(ABC):
 
 
 class Section(NodeAbc):
+    """
+    Config section.
+    """
     def __init__(self):
         super().__init__('s')
 
 
 class OptionAbc(NodeAbc):
+    """
+    Root class for all config options.
+    """
     def __init__(self, iv_kind: str):
         super().__init__(iv_kind)
         self.default = None
@@ -116,6 +125,9 @@ class OptionAbc(NodeAbc):
 
 
 class OptValue(OptionAbc):
+    """
+    Single valued untyped option.
+    """
     def __init__(self, iv_default=None, iv_required: bool = None):
         super().__init__('v')
         if iv_default is not None:
@@ -137,11 +149,19 @@ class OptValue(OptionAbc):
 
 
 class OptVInt(OptValue):
+    """
+    Single valued option that should contain `int` value.
+    Supports suffixes `K` for 1000 and `KB` for 1024 multiplier and also `M`, `G`, `P`, `T` , `MB`, `GB`, `PB`, `TB`
+    suffixes with similar behavior.
+    """
     def value_parse(self, iv: str) -> int:
         return _opt_int_parse(iv)
 
 
 class OptVChoice(OptValue):
+    """
+    Single valued option that contain `str` keys which is mapped to some values.
+    """
     def __init__(self, il_mapping: dict, iv_default=None, iv_required: bool = None):
         if isinstance(il_mapping, Mapping):
             self._mapping_l = il_mapping
@@ -156,11 +176,17 @@ class OptVChoice(OptValue):
 
 
 class OptVFloat(OptValue):
+    """
+    Single valued option that should contain `float` value.
+    """
     def value_parse(self, iv: str) -> float:
         return _opt_float_parse(iv)
 
 
 class OptList(OptionAbc):
+    """
+    List contained option with untyped values.
+    """
     def __init__(self, iv_default=None, iv_required: bool = None):
         super().__init__('l')
         if iv_default is None:
@@ -182,16 +208,29 @@ class OptList(OptionAbc):
 
 
 class OptLInt(OptList):
+    """
+    List contained option with values of type `int`. Multiplication prefixes is supported.
+    """
     def value_parse(self, iv: str) -> int:
         return _opt_int_parse(iv)
 
 
 class OptLFloat(OptList):
+    """
+    List contained option with values of type `float`.
+    """
     def value_parse(self, iv: str) -> float:
         return _opt_float_parse(iv)
 
 
 def as_node(iv_name: str) -> NodeAbc:
+    """
+    :param iv_name: name of the config node (option or section).
+        If name have a prefix "s_" function returns `Section` object named without prefix.
+        Also function returns object with non-refixed name for prefix "v_" --`OptValue` and for prefix
+        "l_" -- `OptList`. If name have no prefix ("s_", "v_", "l_") then function returns `Section`.
+    :return: Option or section object.
+    """
     v_kind, v_name = _opt_name_split(iv_name)
 
     if v_kind in ['', 's']:
@@ -203,7 +242,7 @@ def as_node(iv_name: str) -> NodeAbc:
 
 
 def _parser_dict_create(il_tree) -> dict:
-    """Create plain dict parser from input tree of opt definitions `DefOptAbc objects`.
+    """Create plain dict parser from input tree of opt definitions `NodeAbc objects`.
 
     :param il_tree: NodeAbc or Sequence
     :return: None
@@ -235,7 +274,7 @@ class ConfTreeWalker:
     class Missing:
         ...
 
-    def __init__(self, il_tree_slice: list = []):
+    def __init__(self, il_tree_slice: list):
         self.node_l: list = il_tree_slice
         self.kind: str = ''
         self.key: str = ''
@@ -258,7 +297,7 @@ class ConfTreeWalker:
             else:
                 l_node_new.append(self.Missing())
                 continue
-            if self.kind == 'l' and isinstance(v_opt, list):
+            if self.kind in ('s', 'l') and isinstance(v_opt, list):
                 l_node_new.extend(v_opt)
             else:
                 l_node_new.append(v_opt)
@@ -310,7 +349,7 @@ class ConfTreeWalker:
         self.path = f'{v_path_pref}{self.key}'
 
 
-def _walker_node_merge(il_walker: List[ConfTreeWalker]) -> ConfTreeWalker:
+def _walker_knot_merge(il_walker: List[ConfTreeWalker]) -> ConfTreeWalker:
     v_wl = il_walker[-1]
     for v in il_walker:
         if v.node_exist():
@@ -333,24 +372,26 @@ def _walker_slice_merge(il_walker: List[ConfTreeWalker], iv_node_idx: int) -> Co
 
 
 class Config(Mapping[str, Any]):
+    """
+    Root class for configuration.
+    Represent dictionary of configuration options with keys containing full path to corresponding option separated with
+    `conflex.NODE_SEP` string.
+    """
     def __init__(self, il_parser: Union[NodeAbc, Sequence] = None):
-        self._walker_l = [ConfTreeWalker()]
+        self._walker_l = [ConfTreeWalker([])]
         self._parser_l: Mapping[str, OptionAbc] = _parser_dict_create(il_parser) if il_parser is not None else {}
-        self._iter = None
-
-    def _my_iter(self):
-        if self._iter is None:
-            self._iter = ConfigIter(self, self._parser_l)
-        return self._iter
 
     def __getitem__(self, item: str):
-        return _walker_node_merge(self._node_get(self._walker_l_copy(), item)).value_get(self._parser_l)
+        return _walker_knot_merge(self._node_get(self._walker_l_copy(), item)).value_get(self._parser_l)
 
     def __iter__(self):
-        return m_cp.copy(self._my_iter())
+        return self._parser_l.keys().__iter__()
 
     def __len__(self):
-        return len(self._my_iter())
+        return len(self._parser_l)
+
+    def items(self):
+        return ConfigItemsView(self._walker_l, self._parser_l)
 
     def _walker_l_copy(self) -> List[ConfTreeWalker]:
         return [m_cp.copy(v) for v in self._walker_l]
@@ -375,7 +416,7 @@ class Config(Mapping[str, Any]):
         for v_idx in range(v_len):
             yield SubConfig([_walker_slice_merge(l_wl, v_idx)], self._parser_l)
 
-    def node(self, iv_path: str):
+    def knot(self, iv_path: str):
         return SubConfig(self._node_get(self._walker_l_copy(), iv_path), self._parser_l)
 
     def load_dicts(self, ill_raw_conf: Iterable[Union[Mapping, Iterable]]) -> None:
@@ -386,20 +427,24 @@ class Config(Mapping[str, Any]):
             else:
                 l_wl.append(ConfTreeWalker([dict(l_raw_conf)]))
         self._walker_l = l_wl
-        self._iter = None
 
 
 class SubConfig(Config):
-    def __init__(self, il_parent_opt: List[ConfTreeWalker], il_parser: Mapping[str, OptionAbc]):
+    """
+    Class inherited from `Config` represent sub-tree of configuration.
+    `Config.node` and `Config.slice` returns objects of this type.
+    """
+    def __init__(self, il_parent_walker: List[ConfTreeWalker], il_parser: Mapping[str, OptionAbc]):
         super().__init__()
-        self._walker_l = il_parent_opt
+        assert all(type(v) is ConfTreeWalker for v in il_parent_walker)
+        self._walker_l = il_parent_walker
         self._parser_l = il_parser
-        self.kind = il_parent_opt[0].kind
-        self.path = il_parent_opt[0].path_raw
+        self.kind = il_parent_walker[0].kind
+        self.path = il_parent_walker[0].path_raw
 
     @property
     def v(self):
-        return _walker_node_merge(self._walker_l).value_get(self._parser_l)
+        return _walker_knot_merge(self._walker_l).value_get(self._parser_l)
 
     def _node_get(self, il_walker: List[ConfTreeWalker], iv_path: str) -> List[ConfTreeWalker]:
         assert isinstance(iv_path, str), r'Option sub-path is not a str.'
@@ -423,21 +468,47 @@ class SubConfig(Config):
             else:
                 l_wl.append(ConfTreeWalker([dict(l_raw_conf)]))
         self._walker_l = self._node_get(l_wl, self._walker_l[0].path_raw)
-        self._iter = None
+
+
+class ConfigItemsView(Iterable, Sized):
+    def __init__(self, il_walker: List[ConfTreeWalker], il_parser: Mapping[str, OptionAbc]):
+        assert all(type(v) is ConfTreeWalker for v in il_walker)
+        self._walker_l = il_walker
+        self._parser_l = il_parser
+        self._opt_path_l = set((v_k for v_k, v_i in il_parser.items() if v_i.kind != 's'))
+
+    def __iter__(self):
+        return ConfigIter(SubConfig(self._walker_l, self._parser_l), self._opt_path_l)
+
+    def __len__(self) -> int:
+        return len(self._opt_path_l)
+
+    def __contains__(self, iv: Tuple[str, Any]) -> bool:
+        assert type(iv) is tuple and len(iv) == 2
+        assert isinstance(iv[0], str), r'Option path is not a str.'
+        v_path: str = iv[0]
+        if len(v_path) == 0:
+            return False
+        if v_path not in self._opt_path_l:
+            return False
+        l_wl = [m_cp.copy(v) for v in self._walker_l]
+        for v_key_raw in v_path.split(NODE_SEP):
+            v_exist: bool = False
+            for v in l_wl:
+                v.move(self._parser_l, v_key_raw)
+                v_exist = v_exist or v.node_exist()
+            if not v_exist:
+                return False
+        return _walker_knot_merge(l_wl).value_get(self._parser_l) == iv[1]
 
 
 class ConfigIter:
     # !!!TODO: optimize this. switch to use `ConfTreeWalker`.
-    def __init__(self, iv_parent: Config, il_parser: Mapping[str, OptionAbc]):
+    def __init__(self, iv_parent: SubConfig, il_path: Iterable[str]):
         self._conf = iv_parent
-        self._parser_iter = il_parser.items().__iter__()
-        self._parser = il_parser
+        self._path_offset = len(self._conf.path)
+        self._path_iter = il_path.__iter__()
 
     def __next__(self):
-        v_path, v_opt = self._parser_iter.__next__()
-        while v_opt.kind == 's':
-            v_path, v_opt = self._parser_iter.__next__()
+        v_path = self._path_iter.__next__()[self._path_offset:]
         return v_path, self._conf[v_path]
-
-    def __len__(self):
-        return len([v_k for v_k, v_i in self._parser.items() if v_i.kind != 's'])

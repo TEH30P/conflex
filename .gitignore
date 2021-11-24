@@ -2,6 +2,5 @@
 test/.pytest_cache
 test/__pycache__
 test/.coverage
-rpt
 try
 venv

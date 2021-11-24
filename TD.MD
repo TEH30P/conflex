@@ -2,9 +2,8 @@
 
 ## `Config`
 Наследует `Mapping`.
-Методы:
-- `load` - загрузить конфиг из `Mapping[str, Any]`. 
-- `load_inheritors` - загрузить списое конфигов с наследованием принимает `Iterable[Mapping[str, Any]]`.
+Методы: 
+- `load_dicts` - загрузить списое конфигов с наследованием принимает `Iterable[Mapping[str, Any]]`.
 
 ## `TreeProvider`
 Загрузчик и первичный парсер файлов, реализует `Mapping[str, Any]`

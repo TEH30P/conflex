@@ -61,21 +61,19 @@ l_test_dict: dict = {
         'fl:simple.yaml',
         'fl:simple_nopref.yaml',
         'fl:simple_fullpath.yaml',
-        # !!!REM: None is treated as None, not missing. Keep dict for testing `missing` indicators.
+        # !!!REM: None is treated as None, not missing. Keep dict for testing `missing indicators`.
         #'kv:simple_nulls0',
         'kv:simple_merge'
     ])
 def fv_conf_dict(request):
-    import yaml, io
-
+    import yaml
+    import io
     l_conf: list = []
     if str(request.param)[:2] == 'fl':
         with io.open(request.param[3:]) as v_rd:
             l_conf = [yaml.load(v_rd, Loader=yaml.BaseLoader)]
     if str(request.param)[:2] == 'kv':
         l_conf = l_test_dict[request.param[3:]]
-    #print(l_conf)
-
     return l_conf
 
 
@@ -137,10 +135,10 @@ def test_config_values(fv_conf_object):
 
 
 def test_subconfig_values(fv_conf_object):
-    v_sconf_object = fv_conf_object.node('main/complex')
+    v_sconf_object = fv_conf_object.knot('main/complex')
     assert v_sconf_object.v == 'ok'
     assert v_sconf_object['kind'] == 'nice'
-    v_sconf_object = fv_conf_object.node('s_main/l_complex_list')
+    v_sconf_object = fv_conf_object.knot('s_main/l_complex_list')
     assert v_sconf_object.v == [1, 5, 10, 42]
     assert v_sconf_object['v_as'] == ['I', 'V', 'X', '?']
     if len(fv_conf_object._walker_l) > 1:
@@ -175,8 +173,8 @@ def test_config_errors(fv_conf_object):
 
 def test_subconfig_errors(fv_conf_object):
     with pytest.raises(TypeError) as x:
-        v = fv_conf_object.node('main').v
-    v_sconf_object = fv_conf_object.node('main/complex')
+        v = fv_conf_object.knot('main').v
+    v_sconf_object = fv_conf_object.knot('main/complex')
     with pytest.raises(KeyError) as x:
         v = v_sconf_object['dummy']
     with pytest.raises(KeyError) as x:
@@ -206,10 +204,10 @@ def test_config_kind_values(fv_conf_object):
 
 
 def test_subconfig_kind_values(fv_conf_object):
-    v_sconf_object = fv_conf_object.node('s_main/v_complex')
+    v_sconf_object = fv_conf_object.knot('s_main/v_complex')
     assert v_sconf_object.v == 'ok'
     assert v_sconf_object['v_kind'] == 'nice'
-    v_sconf_object = fv_conf_object.node('s_main/l_complex_list')
+    v_sconf_object = fv_conf_object.knot('s_main/l_complex_list')
     assert v_sconf_object.v == [1, 5, 10, 42]
     assert v_sconf_object['v_as'] == ['I', 'V', 'X', '?']
     if len(fv_conf_object._walker_l) > 1:
@@ -244,7 +242,8 @@ def test_config_kind_errors(fv_conf_object):
 
 def test_config_iter(fv_conf_object):
     l_option = \
-        { 'main/lost': 'default'
+        { 'main': None
+        , 'main/lost': 'default'
         , 'main/lost/sub_lost': 'sub_default'
         , 'main/lost_list': list('default')
         , 'main/bool': True
@@ -258,11 +257,20 @@ def test_config_iter(fv_conf_object):
         , 'main/complex': 'ok'
         , 'main/complex/kind': 'nice'}
     v_idx = -1
-    for v_option, v_content in fv_conf_object:
-        assert v_content == l_option[v_option]
+    v_it = fv_conf_object.items()
+    for v_key, v_val in v_it:
+        assert v_val == l_option[v_key]
         v_idx += 1
     assert v_idx >= 0
+    assert ('', None) not in v_it
+    assert ('main', None) not in v_it
+    assert ('main/lost', None) not in v_it
+    assert ('main/bool', True) in v_it
+    assert ('main/bool', False) not in v_it
+    assert len(v_it) == len(l_option) - 1  # one section
     assert len(fv_conf_object) == len(l_option)
+    for v_key in fv_conf_object:
+        assert v_key in l_option
 
 
 def test_opt_manager_errors():
@@ -450,7 +458,7 @@ def test_subconf_load():
         )
     )
     v_c.load_dicts([{'s': {'a': {'v': 'a0', 'aa': 0, 'ab': 1}}}])
-    v_sc = v_c.node('s/a')
+    v_sc = v_c.knot('s/a')
     v_sc.load_dicts([{'s': {'a': {'v': 'a1', 'aa': 42, 'ab': 24}}}])
     assert v_sc.v == 'a1'
     assert v_sc['aa'] == 42
