@@ -13,7 +13,7 @@ setup(
     license='MIT',
     author='TEH3OP',
     author_email='TEH3OP@gmail.com',
-    description='Configuration flexible reader for python that can support many formats.',
+    description='Flexible and extensible configuration reader for python.',
     long_description=v_long_description,
     long_description_content_type='text/markdown',
     python_requires='>=3.6.0',

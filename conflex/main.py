@@ -227,7 +227,7 @@ def as_node(iv_name: str) -> NodeAbc:
     """
     :param iv_name: name of the config node (option or section).
         If name have a prefix "s_" function returns `Section` object named without prefix.
-        Also function returns object with non-refixed name for prefix "v_" --`OptValue` and for prefix
+        Also function returns object with non-prefixed name for prefix "v_" --`OptValue` and for prefix
         "l_" -- `OptList`. If name have no prefix ("s_", "v_", "l_") then function returns `Section`.
     :return: Option or section object.
     """
@@ -445,20 +445,6 @@ class SubConfig(Config):
     @property
     def v(self):
         return _walker_knot_merge(self._walker_l).value_get(self._parser_l)
-
-    def _node_get(self, il_walker: List[ConfTreeWalker], iv_path: str) -> List[ConfTreeWalker]:
-        assert isinstance(iv_path, str), r'Option sub-path is not a str.'
-        if len(iv_path) == 0:
-            raise KeyError(r'Option sub-path is empty.')
-        l_wl = il_walker
-        for v_key_raw in iv_path.split(NODE_SEP):
-            if len(v_key_raw) == 0:
-                raise KeyError(r'Option sub-path have invalid format.'
-                               f'Format is: `option-or-section , {{ "{NODE_SEP}" , option-or-section }}`,'
-                               f' repeatable "{NODE_SEP}" is prohibited.')
-            for v in l_wl:
-                v.move(self._parser_l, v_key_raw)
-        return l_wl
 
     def load_dicts(self, ill_raw_conf: Iterable[Union[Mapping, Iterable]]) -> None:
         l_wl: List[ConfTreeWalker] = []

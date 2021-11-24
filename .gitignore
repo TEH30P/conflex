@@ -1,6 +1,10 @@
 .idea
+conflex.egg-info
 test/.pytest_cache
 test/__pycache__
 test/.coverage
 try
-venv
+venv*
+build
+dist
+TD.MD
